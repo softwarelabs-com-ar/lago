@@ -1,0 +1,97 @@
+# frozen_string_literal: true
+
+require "rails_helper"
+
+RSpec.describe Plans::DestroyService, type: :service do
+  subject(:destroy_service) { described_class.new(plan:) }
+
+  let(:membership) { create(:membership) }
+  let(:organization) { membership.organization }
+  let(:plan) { create(:plan, organization:, pending_deletion: true) }
+
+  before { plan }
+
+  describe "#call" do
+    it "soft deletes the plan" do
+      freeze_time do
+        expect { destroy_service.call }.to change(Plan, :count).by(-1)
+          .and change { plan.reload.deleted_at }.from(nil).to(Time.current)
+      end
+    end
+
+    it "sets pending_deletion to false" do
+      expect { destroy_service.call }.to change { plan.reload.pending_deletion }.from(true).to(false)
+    end
+
+    context "when plan is not found" do
+      let(:plan) { nil }
+
+      it "returns an error" do
+        result = destroy_service.call
+
+        aggregate_failures do
+          expect(result).not_to be_success
+          expect(result.error.error_code).to eq("plan_not_found")
+        end
+      end
+    end
+
+    context "with active subscriptions" do
+      let(:subscriptions) { create_list(:subscription, 2, plan:) }
+
+      before { subscriptions }
+
+      it "terminates the subscriptions" do
+        result = destroy_service.call
+
+        aggregate_failures do
+          expect(result).to be_success
+
+          subscriptions.each do |subscription|
+            expect(subscription.reload).to be_terminated
+          end
+        end
+      end
+    end
+
+    context "with pending subscriptions" do
+      let(:subscriptions) { create_list(:subscription, 2, :pending, plan:) }
+
+      before { subscriptions }
+
+      it "cancels the subscriptions" do
+        result = destroy_service.call
+
+        aggregate_failures do
+          expect(result).to be_success
+
+          subscriptions.each do |subscription|
+            expect(subscription.reload).to be_canceled
+          end
+        end
+      end
+    end
+
+    context "with draft invoices" do
+      let(:subscription) { create(:subscription, plan:) }
+      let(:invoices) { create_list(:invoice, 2, :draft) }
+
+      before do
+        create(:invoice_subscription, invoice: invoices.first, subscription:, invoicing_reason: :subscription_starting)
+        create(:invoice_subscription, invoice: invoices.second, subscription:, invoicing_reason: :subscription_periodic)
+      end
+
+      it "finalizes draft invoices" do
+        result = destroy_service.call
+
+        aggregate_failures do
+          expect(result).to be_success
+
+          invoices.each do |invoice|
+            expect(invoice.reload).to be_finalized
+          end
+        end
+      end
+    end
+  end
+end
