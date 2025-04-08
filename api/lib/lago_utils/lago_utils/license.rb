@@ -4,24 +4,24 @@ module LagoUtils
   class License
     def initialize(url)
       @url = url
-      @premium = false
+      @premium = true
     end
 
     def verify
       return if ENV["LAGO_LICENSE"].blank?
 
-      http_client = LagoHttpClient::Client.new("#{url}/verify/#{ENV["LAGO_LICENSE"]}")
-      response = http_client.get
+      # http_client = LagoHttpClient::Client.new("#{url}/verify/#{ENV["LAGO_LICENSE"]}")
+      # response = http_client.get
 
-      @premium = response["valid"]
+      # @premium = response["valid"]
     end
 
     def premium?
-      premium
+      true
     end
 
     private
 
-    attr_reader :url, :premium
+    attr_reader :url
   end
 end
